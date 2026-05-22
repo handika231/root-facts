@@ -72,7 +72,7 @@ export class DetectionService {
       throw new Error('Model deteksi belum dimuat');
     }
 
-    const { topClass, topScore } = tf.tidy(() => {
+    const { topClass, topScore, secondScore } = tf.tidy(() => {
       const tensor = tf.browser
         .fromPixels(imageElement)
         .resizeBilinear([this.imageSize, this.imageSize])
@@ -84,26 +84,38 @@ export class DetectionService {
       const logits = this.model.predict(tensor);
       const data = logits.dataSync();
 
+      // [Advance] Ambil top-1 dan top-2 untuk uji margin
       let bestIdx = 0;
       let bestScore = data[0];
+      let secondBest = -Infinity;
       for (let i = 1; i < data.length; i++) {
         if (data[i] > bestScore) {
+          secondBest = bestScore;
           bestScore = data[i];
           bestIdx = i;
+        } else if (data[i] > secondBest) {
+          secondBest = data[i];
         }
       }
 
-      return { topClass: bestIdx, topScore: bestScore };
+      return {
+        topClass: bestIdx,
+        topScore: bestScore,
+        secondScore: secondBest === -Infinity ? 0 : secondBest,
+      };
     });
 
     const className = this.labels[topClass] || 'Unknown';
     const confidence = Math.round(topScore * 100);
+    const margin = topScore - secondScore;
     const isValid = topScore >= 0.5;
 
     return {
       className,
       score: topScore,
       confidence,
+      secondScore,
+      margin,
       isValid,
       index: topClass,
     };

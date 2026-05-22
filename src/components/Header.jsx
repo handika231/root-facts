@@ -1,7 +1,7 @@
 import { Sprout } from 'lucide-react';
 
 function Header({ modelStatus, loadProgress }) {
-  const isModelReady = modelStatus === 'Model AI Siap';
+  const isModelReady = modelStatus === 'Siap';
   const isLoading = !isModelReady && typeof loadProgress === 'number' && loadProgress < 100;
 
   return (
