@@ -1,9 +1,22 @@
-import { Sparkles, Search, CheckCircle, Lightbulb, Copy, Share2 } from 'lucide-react';
+import {
+  CheckCircle,
+  Copy,
+  Lightbulb,
+  Search,
+  Share2,
+  Sparkles,
+} from "lucide-react";
 
-function InfoPanel({ appState, detectionResult, funFactData, error, onCopyFact }) {
-  const isIdle = appState === 'idle';
-  const isAnalyzing = appState === 'analyzing';
-  const isResult = appState === 'result';
+function InfoPanel({
+  appState,
+  detectionResult,
+  funFactData,
+  error,
+  onCopyFact,
+}) {
+  const isIdle = appState === "idle";
+  const isAnalyzing = appState === "analyzing";
+  const isResult = appState === "result";
 
   const renderIdleState = () => (
     <div id="state-idle" className="result-card idle-card">
@@ -11,9 +24,14 @@ function InfoPanel({ appState, detectionResult, funFactData, error, onCopyFact }
         <Sparkles size={40} />
       </div>
       <h2>Scan Sayuran</h2>
-      <p>Ketuk tombol di bawah untuk memulai dan temukan fakta menarik tentang sayuran!</p>
+      <p>
+        Ketuk tombol di bawah untuk memulai dan temukan fakta menarik tentang
+        sayuran!
+      </p>
       {error && (
-        <p style={{ color: '#ef4444', fontSize: '0.8125rem', marginTop: '1rem' }}>
+        <p
+          style={{ color: "#ef4444", fontSize: "0.8125rem", marginTop: "1rem" }}
+        >
           {error}
         </p>
       )}
@@ -43,21 +61,24 @@ function InfoPanel({ appState, detectionResult, funFactData, error, onCopyFact }
         return (
           <div id="fun-fact-loading" className="fun-fact-loading">
             <div className="fun-fact-loading-spinner"></div>
-            <span>Memuat fakta menarik...</span>
+            <span>Memuat fakta menarik... (kamera dijeda otomatis)</span>
           </div>
         );
       }
 
-      if (funFactData === 'error') {
+      if (funFactData === "error") {
         return (
-          <div style={{
-            padding: '0.75rem',
-            background: '#fef3c7',
-            borderRadius: 'var(--radius-sm)',
-            fontSize: '0.875rem',
-            color: '#92400e'
-          }}>
-            Gagal menghasilkan fakta menarik. Mode offline atau layanan tidak tersedia.
+          <div
+            style={{
+              padding: "0.75rem",
+              background: "#fef3c7",
+              borderRadius: "var(--radius-sm)",
+              fontSize: "0.875rem",
+              color: "#92400e",
+            }}
+          >
+            Gagal menghasilkan fakta menarik. Mode offline atau layanan tidak
+            tersedia.
           </div>
         );
       }
@@ -80,7 +101,7 @@ function InfoPanel({ appState, detectionResult, funFactData, error, onCopyFact }
             <div id="fun-fact-text" className="fun-fact-text">
               {renderFunFactContent()}
             </div>
-            {funFactData && funFactData !== 'error' && (
+            {funFactData && funFactData !== "error" && (
               <button
                 id="btn-copy"
                 className="copy-btn"
@@ -102,7 +123,9 @@ function InfoPanel({ appState, detectionResult, funFactData, error, onCopyFact }
               style={{ width: `${confidence}%` }}
             ></div>
           </div>
-          <span id="detected-confidence" className="confidence-value">{confidence}%</span>
+          <span id="detected-confidence" className="confidence-value">
+            {confidence}%
+          </span>
         </div>
 
         <div className="share-hint">

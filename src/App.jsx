@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import Header from './components/Header';
-import CameraSection from './components/CameraSection';
-import InfoPanel from './components/InfoPanel';
-import { useAppState } from './hooks/useAppState';
-import { DetectionService } from './services/DetectionService';
-import { CameraService } from './services/CameraService';
-import { RootFactsService } from './services/RootFactsService';
-import { TONE_CONFIG, isValidDetection } from './utils/config';
-import { logError } from './utils/common';
+import { useCallback, useEffect, useRef, useState } from "react";
+import CameraSection from "./components/CameraSection";
+import Header from "./components/Header";
+import InfoPanel from "./components/InfoPanel";
+import { useAppState } from "./hooks/useAppState";
+import { CameraService } from "./services/CameraService";
+import { DetectionService } from "./services/DetectionService";
+import { RootFactsService } from "./services/RootFactsService";
+import { logError } from "./utils/common";
+import { APP_CONFIG, TONE_CONFIG, isValidDetection } from "./utils/config";
 
 function App() {
   const { state, actions } = useAppState();
@@ -31,7 +31,7 @@ function App() {
 
     (async () => {
       try {
-        actions.setModelStatus('Menunggu Model... 0%');
+        actions.setModelStatus("Menunggu Model... 0%");
 
         await detector.loadModel((p) => {
           if (cancelled) return;
@@ -40,7 +40,7 @@ function App() {
         });
 
         if (cancelled) return;
-        actions.setModelStatus('Memuat AI Generator...');
+        actions.setModelStatus("Memuat AI Generator...");
 
         try {
           await generator.loadModel((p) => {
@@ -48,17 +48,17 @@ function App() {
             actions.setModelStatus(`Memuat AI Generator... ${p}%`);
           });
         } catch (err) {
-          logError('RootFactsService.loadModel', err);
+          logError("RootFactsService.loadModel", err);
         }
 
         if (!cancelled) {
-          actions.setModelStatus('Model AI Siap');
+          actions.setModelStatus("Model AI Siap");
         }
       } catch (err) {
-        logError('App.init', err);
+        logError("App.init", err);
         if (!cancelled) {
           actions.setError(`Gagal memuat model: ${err.message}`);
-          actions.setModelStatus('Gagal memuat model');
+          actions.setModelStatus("Gagal memuat model");
         }
       }
     })();
@@ -76,21 +76,39 @@ function App() {
     };
   }, []);
 
+  // [Basic] Hentikan loop deteksi dan kamera (dipakai juga oleh auto-stop saat generate)
+  const stopDetectionAndCamera = useCallback(() => {
+    const { camera } = servicesRef.current;
+    isRunningRef.current = false;
+    if (detectionLoopRef.current) {
+      cancelAnimationFrame(detectionLoopRef.current);
+      detectionLoopRef.current = null;
+    }
+    camera?.stopCamera();
+    actions.setRunning(false);
+  }, [actions]);
+
   // [Basic] Fungsi untuk memulai loop deteksi
   const startDetectionLoop = useCallback(() => {
     const { detector, camera, generator } = servicesRef.current;
     if (!detector || !camera) return;
 
     let lastFrameTime = 0;
+    let lastPredictionTime = 0;
 
     const loop = async (timestamp) => {
       if (!isRunningRef.current) return;
 
       const fps = camera.getFPS ? camera.getFPS() : 30;
-      const minDelay = 1000 / fps;
+      const minFrameDelay = 1000 / fps;
+      const cooldown = APP_CONFIG.predictionCooldownMs;
 
-      if (timestamp - lastFrameTime >= minDelay && camera.isReady()) {
+      const frameElapsed = timestamp - lastFrameTime >= minFrameDelay;
+      const cooldownElapsed = timestamp - lastPredictionTime >= cooldown;
+
+      if (frameElapsed && cooldownElapsed && camera.isReady()) {
         lastFrameTime = timestamp;
+        lastPredictionTime = timestamp;
         try {
           const result = await detector.predict(camera.video);
 
@@ -99,32 +117,41 @@ function App() {
               lastDetectionRef.current = result.className;
               actions.setDetectionResult(result);
               actions.setFunFactData(null);
-              actions.setAppState('result');
+              actions.setAppState("result");
 
               if (generator?.isReady()) {
+                // [Advance] Auto-stop kamera saat generator AI mulai menghasilkan
+                // deskripsi agar tidak terjadi tumpang tindih antara klasifikasi
+                // berikutnya dengan proses generative yang sedang berjalan.
+                const detectedName = result.className;
+                if (APP_CONFIG.autoStopOnGenerate) {
+                  stopDetectionAndCamera();
+                }
+
                 generator
-                  .generateFacts(result.className)
+                  .generateFacts(detectedName)
                   .then((text) => {
-                    if (
-                      isRunningRef.current &&
-                      lastDetectionRef.current === result.className
-                    ) {
+                    if (lastDetectionRef.current === detectedName) {
                       actions.setFunFactData(text);
                     }
                   })
                   .catch((err) => {
-                    logError('generateFacts', err);
-                    if (isRunningRef.current) {
-                      actions.setFunFactData('error');
+                    logError("generateFacts", err);
+                    if (lastDetectionRef.current === detectedName) {
+                      actions.setFunFactData("error");
                     }
                   });
+
+                if (APP_CONFIG.autoStopOnGenerate) {
+                  return; // hentikan loop, jangan request frame berikutnya
+                }
               } else {
-                actions.setFunFactData('error');
+                actions.setFunFactData("error");
               }
             }
           }
         } catch (err) {
-          logError('predict loop', err);
+          logError("predict loop", err);
         }
       }
 
@@ -132,7 +159,7 @@ function App() {
     };
 
     detectionLoopRef.current = requestAnimationFrame(loop);
-  }, [actions]);
+  }, [actions, stopDetectionAndCamera]);
 
   // [Basic] Fungsi untuk memulai dan menghentikan kamera
   const handleToggleCamera = useCallback(async () => {
@@ -140,15 +167,9 @@ function App() {
     if (!camera) return;
 
     if (isRunningRef.current) {
-      isRunningRef.current = false;
-      if (detectionLoopRef.current) {
-        cancelAnimationFrame(detectionLoopRef.current);
-        detectionLoopRef.current = null;
-      }
-      camera.stopCamera();
+      stopDetectionAndCamera();
       lastDetectionRef.current = null;
-      actions.setRunning(false);
-      actions.setAppState('idle');
+      actions.setAppState("idle");
       actions.setDetectionResult(null);
       actions.setFunFactData(null);
       return;
@@ -156,19 +177,19 @@ function App() {
 
     try {
       actions.setError(null);
-      await camera.startCamera('default');
+      await camera.startCamera("default");
       isRunningRef.current = true;
       lastDetectionRef.current = null;
       actions.setRunning(true);
-      actions.setAppState('analyzing');
+      actions.setAppState("analyzing");
       actions.setDetectionResult(null);
       actions.setFunFactData(null);
       startDetectionLoop();
     } catch (err) {
-      logError('handleToggleCamera', err);
-      actions.setError(err.message || 'Gagal memulai kamera');
+      logError("handleToggleCamera", err);
+      actions.setError(err.message || "Gagal memulai kamera");
     }
-  }, [actions, startDetectionLoop]);
+  }, [actions, startDetectionLoop, stopDetectionAndCamera]);
 
   // [Advance] Fungsi untuk mengubah nada fakta yang dihasilkan
   const handleToneChange = useCallback(
@@ -189,8 +210,8 @@ function App() {
             }
           })
           .catch((err) => {
-            logError('regenerate on tone change', err);
-            actions.setFunFactData('error');
+            logError("regenerate on tone change", err);
+            actions.setFunFactData("error");
           });
       }
     },
@@ -200,24 +221,24 @@ function App() {
   // [Skilled] Fungsi untuk menyalin fakta ke clipboard
   const handleCopyFact = useCallback(async () => {
     const text = state.funFactData;
-    if (!text || typeof text !== 'string' || text === 'error') return;
+    if (!text || typeof text !== "string" || text === "error") return;
 
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text);
       } else {
-        const ta = document.createElement('textarea');
+        const ta = document.createElement("textarea");
         ta.value = text;
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
         document.body.appendChild(ta);
         ta.select();
-        document.execCommand('copy');
+        document.execCommand("copy");
         document.body.removeChild(ta);
       }
     } catch (err) {
-      logError('copyFact', err);
-      actions.setError('Gagal menyalin fakta ke papan klip');
+      logError("copyFact", err);
+      actions.setError("Gagal menyalin fakta ke papan klip");
     }
   }, [state.funFactData, actions]);
 
@@ -250,36 +271,38 @@ function App() {
       </footer>
 
       {state.error && (
-        <div style={{
-          position: 'fixed',
-          bottom: '1rem',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          maxWidth: '380px',
-          padding: '0.875rem 1rem',
-          background: '#fef2f2',
-          border: '1px solid #fecaca',
-          borderRadius: 'var(--radius-md)',
-          color: '#991b1b',
-          fontSize: '0.8125rem',
-          boxShadow: 'var(--shadow-lg)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.5rem',
-          zIndex: 1000
-        }}>
+        <div
+          style={{
+            position: "fixed",
+            bottom: "1rem",
+            left: "50%",
+            transform: "translateX(-50%)",
+            maxWidth: "380px",
+            padding: "0.875rem 1rem",
+            background: "#fef2f2",
+            border: "1px solid #fecaca",
+            borderRadius: "var(--radius-md)",
+            color: "#991b1b",
+            fontSize: "0.8125rem",
+            boxShadow: "var(--shadow-lg)",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.5rem",
+            zIndex: 1000,
+          }}
+        >
           <strong>Error:</strong> {state.error}
           <button
             onClick={() => actions.setError(null)}
             style={{
-              marginLeft: 'auto',
-              background: 'transparent',
-              border: 'none',
-              fontSize: '1.25rem',
-              cursor: 'pointer',
-              color: '#991b1b',
+              marginLeft: "auto",
+              background: "transparent",
+              border: "none",
+              fontSize: "1.25rem",
+              cursor: "pointer",
+              color: "#991b1b",
               padding: 0,
-              lineHeight: 1
+              lineHeight: 1,
             }}
           >
             ×
